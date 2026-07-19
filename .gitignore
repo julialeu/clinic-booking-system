@@ -1,0 +1,38 @@
+# === Go ===
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# === PHP / Laravel ===
+/vendor/
+/node_modules/
+.env
+.env.backup
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+
+# === Docker ===
+.env.docker
+
+# === OS ===
+.DS_Store
+Thumbs.db
+
+# === Logs ===
+*.log
+
+# === Archivos de trabajo internos ===
+CLAUDE_CONTEXT.md
