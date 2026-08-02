@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/domain/appointment"
+	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/postgres"
 )
 
 var _ appointment.Repository = (*AppointmentRepository)(nil)
@@ -35,7 +36,7 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at     = now()`
 
 func (r *AppointmentRepository) Save(ctx context.Context, a *appointment.Appointment) error {
-	_, err := r.pool.Exec(ctx, upsertAppointmentSQL,
+	_, err := postgres.QuerierFrom(ctx, r.pool).Exec(ctx, upsertAppointmentSQL,
 		a.Id().Value(),
 		a.PatientId().Value(),
 		a.Slot().Start(),
@@ -64,7 +65,7 @@ func (r *AppointmentRepository) FindById(
 ) (*appointment.Appointment, error) {
 	query := `SELECT ` + selectColumns + ` FROM appointments WHERE id = $1`
 
-	row := r.pool.QueryRow(ctx, query, id.Value())
+	row := postgres.QuerierFrom(ctx, r.pool).QueryRow(ctx, query, id.Value())
 
 	result, err := scanAppointment(row)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -91,7 +92,7 @@ WHERE status IN ($1, $2)
   AND ends_at   > $4
 FOR UPDATE`
 
-	rows, err := r.pool.Query(ctx, query,
+	rows, err := postgres.QuerierFrom(ctx, r.pool).Query(ctx, query,
 		int16(appointment.StatusReserved),
 		int16(appointment.StatusConfirmed),
 		slot.End(),
@@ -115,7 +116,7 @@ FROM appointments
 WHERE status = $1
   AND reserved_until < $2`
 
-	rows, err := r.pool.Query(ctx, query, int16(appointment.StatusReserved), now)
+	rows, err := postgres.QuerierFrom(ctx, r.pool).Query(ctx, query, int16(appointment.StatusReserved), now)
 	if err != nil {
 		return nil, fmt.Errorf("finding expired reservations: %w", err)
 	}
