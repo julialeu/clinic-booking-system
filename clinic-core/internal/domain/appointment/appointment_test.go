@@ -225,3 +225,68 @@ func TestExpireFailsWithinReservationWindow(t *testing.T) {
 		t.Errorf("expected ErrNotReserved, got %v", err)
 	}
 }
+
+func TestCannotCancelACompletedAppointment(t *testing.T) {
+	now := testNow()
+	appointment := reserveTestAppointment(t, now)
+
+	if err := appointment.Confirm(now.Add(time.Minute)); err != nil {
+		t.Fatalf("unexpected error confirming: %v", err)
+	}
+
+	afterSession := appointment.Slot().End().Add(time.Minute)
+	if err := appointment.Complete(afterSession); err != nil {
+		t.Fatalf("unexpected error completing: %v", err)
+	}
+
+	err := appointment.Cancel(afterSession)
+	if !errors.Is(err, ErrAlreadyCompleted) {
+		t.Errorf("expected ErrAlreadyCompleted, got %v", err)
+	}
+}
+
+func TestCompleteFailsBeforeSessionEnds(t *testing.T) {
+	now := testNow()
+	appointment := reserveTestAppointment(t, now)
+
+	if err := appointment.Confirm(now.Add(time.Minute)); err != nil {
+		t.Fatalf("unexpected error confirming: %v", err)
+	}
+
+	duringSession := appointment.Slot().Start().Add(10 * time.Minute)
+	err := appointment.Complete(duringSession)
+
+	if !errors.Is(err, ErrNotFinished) {
+		t.Errorf("expected ErrNotFinished, got %v", err)
+	}
+	if appointment.Status() != StatusConfirmed {
+		t.Errorf("status should remain confirmed, got %v", appointment.Status())
+	}
+}
+
+func TestCompleteSucceedsAfterSessionEnds(t *testing.T) {
+	now := testNow()
+	appointment := reserveTestAppointment(t, now)
+
+	if err := appointment.Confirm(now.Add(time.Minute)); err != nil {
+		t.Fatalf("unexpected error confirming: %v", err)
+	}
+	appointment.PullDomainEvents()
+
+	afterSession := appointment.Slot().End().Add(time.Minute)
+	if err := appointment.Complete(afterSession); err != nil {
+		t.Fatalf("unexpected error completing: %v", err)
+	}
+
+	if appointment.Status() != StatusCompleted {
+		t.Errorf("expected status completed, got %v", appointment.Status())
+	}
+
+	events := appointment.PullDomainEvents()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 domain event, got %d", len(events))
+	}
+	if _, ok := events[0].(AppointmentCompleted); !ok {
+		t.Errorf("expected AppointmentCompleted event, got %T", events[0])
+	}
+}
