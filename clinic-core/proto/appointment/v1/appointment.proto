@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package appointment.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/julialeu/clinic-booking-system/clinic-core/internal/infrastructure/grpc/gen/appointment/v1;appointmentv1";
+
+service AppointmentService {
+  rpc ReserveAppointment(ReserveAppointmentRequest) returns (ReserveAppointmentResponse);
+  rpc ConfirmAppointment(ConfirmAppointmentRequest) returns (ConfirmAppointmentResponse);
+  rpc CancelAppointment(CancelAppointmentRequest) returns (CancelAppointmentResponse);
+  rpc GetWeeklyAgenda(GetWeeklyAgendaRequest) returns (GetWeeklyAgendaResponse);
+}
+
+enum AppointmentStatus {
+  APPOINTMENT_STATUS_UNSPECIFIED = 0;
+  APPOINTMENT_STATUS_RESERVED = 1;
+  APPOINTMENT_STATUS_CONFIRMED = 2;
+  APPOINTMENT_STATUS_CANCELLED = 3;
+  APPOINTMENT_STATUS_COMPLETED = 4;
+}
+
+message AppointmentType {
+  string name = 1;
+  int32 duration_minutes = 2;
+  string color = 3;
+  int32 price_cents = 4;
+  string price_currency = 5;
+}
+
+message ReserveAppointmentRequest {
+  string patient_id = 1;
+  google.protobuf.Timestamp starts_at = 2;
+  AppointmentType type = 3;
+}
+
+message ReserveAppointmentResponse {
+  string appointment_id = 1;
+  google.protobuf.Timestamp reserved_until = 2;
+}
+
+message ConfirmAppointmentRequest {
+  string appointment_id = 1;
+}
+
+message ConfirmAppointmentResponse {}
+
+message CancelAppointmentRequest {
+  string appointment_id = 1;
+}
+
+message CancelAppointmentResponse {}
+
+message GetWeeklyAgendaRequest {
+  google.protobuf.Timestamp any_day_of_week = 1;
+}
+
+message AgendaAppointment {
+  string appointment_id = 1;
+  string patient_id = 2;
+  google.protobuf.Timestamp starts_at = 3;
+  google.protobuf.Timestamp ends_at = 4;
+  string type_name = 5;
+  string type_color = 6;
+  AppointmentStatus status = 7;
+}
+
+message AgendaDay {
+  google.protobuf.Timestamp date = 1;
+  repeated AgendaAppointment appointments = 2;
+}
+
+message GetWeeklyAgendaResponse {
+  google.protobuf.Timestamp week_start = 1;
+  google.protobuf.Timestamp week_end = 2;
+  repeated AgendaDay days = 3;
+}
