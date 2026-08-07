@@ -28,17 +28,20 @@ type Clock interface {
 
 type ReserveAppointmentHandler struct {
 	repository  appointment.Repository
+	outbox      shared.OutboxRepository
 	transaction shared.TransactionManager
 	clock       Clock
 }
 
 func NewReserveAppointmentHandler(
 	repository appointment.Repository,
+	outbox shared.OutboxRepository,
 	transaction shared.TransactionManager,
 	clock Clock,
 ) *ReserveAppointmentHandler {
 	return &ReserveAppointmentHandler{
 		repository:  repository,
+		outbox:      outbox,
 		transaction: transaction,
 		clock:       clock,
 	}
@@ -75,9 +78,9 @@ func (h *ReserveAppointmentHandler) Handle(
 		return appointment.AppointmentId{}, err
 	}
 
-	// La comprobación de disponibilidad y el guardado deben ocurrir
-	// en la misma transacción: FindOverlapping bloquea las filas con
-	// FOR UPDATE y solo las libera al hacer commit.
+	// La comprobación de disponibilidad, el guardado y la escritura de
+	// eventos ocurren en la misma transacción: FindOverlapping bloquea
+	// las filas con FOR UPDATE y solo las libera al hacer commit.
 	err = h.transaction.WithinTransaction(ctx, func(txCtx context.Context) error {
 		overlapping, err := h.repository.FindOverlapping(txCtx, slot)
 		if err != nil {
@@ -95,7 +98,8 @@ func (h *ReserveAppointmentHandler) Handle(
 		if err := h.repository.Save(txCtx, reserved); err != nil {
 			return fmt.Errorf("saving appointment: %w", err)
 		}
-		return nil
+
+		return recordEvents(txCtx, h.outbox, reserved)
 	})
 	if err != nil {
 		return appointment.AppointmentId{}, err

@@ -14,17 +14,20 @@ type CancelAppointment struct {
 
 type CancelAppointmentHandler struct {
 	repository  appointment.Repository
+	outbox      shared.OutboxRepository
 	transaction shared.TransactionManager
 	clock       Clock
 }
 
 func NewCancelAppointmentHandler(
 	repository appointment.Repository,
+	outbox shared.OutboxRepository,
 	transaction shared.TransactionManager,
 	clock Clock,
 ) *CancelAppointmentHandler {
 	return &CancelAppointmentHandler{
 		repository:  repository,
+		outbox:      outbox,
 		transaction: transaction,
 		clock:       clock,
 	}
@@ -49,6 +52,7 @@ func (h *CancelAppointmentHandler) Handle(ctx context.Context, cmd CancelAppoint
 		if err := h.repository.Save(txCtx, found); err != nil {
 			return fmt.Errorf("saving cancelled appointment: %w", err)
 		}
-		return nil
+
+		return recordEvents(txCtx, h.outbox, found)
 	})
 }

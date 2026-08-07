@@ -59,13 +59,18 @@ func TestMain(m *testing.M) {
 		log.Fatalf("creating test pool: %v", err)
 	}
 
-	path := filepath.Join("..", "..", "..", "migrations", "000001_create_appointments_table.up.sql")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		log.Fatalf("reading migration: %v", err)
+	migrations := []string{
+		"000001_create_appointments_table.up.sql",
+		"000002_create_outbox_events_table.up.sql",
 	}
-	if _, err := testPool.Exec(ctx, string(content)); err != nil {
-		log.Fatalf("applying migration: %v", err)
+	for _, name := range migrations {
+		content, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", name))
+		if err != nil {
+			log.Fatalf("reading migration %s: %v", name, err)
+		}
+		if _, err := testPool.Exec(ctx, string(content)); err != nil {
+			log.Fatalf("applying migration %s: %v", name, err)
+		}
 	}
 
 	code := m.Run()
@@ -80,6 +85,7 @@ func TestMain(m *testing.M) {
 func newHandler(now time.Time) *command.ReserveAppointmentHandler {
 	return command.NewReserveAppointmentHandler(
 		persistence.NewAppointmentRepository(testPool),
+		persistence.NewOutboxRepository(testPool),
 		postgres.NewTransactionManager(testPool),
 		fixedClock{now: now},
 	)
@@ -99,7 +105,7 @@ func newCommand(patientId string, startsAt time.Time) command.ReserveAppointment
 
 func truncate(t *testing.T) {
 	t.Helper()
-	if _, err := testPool.Exec(context.Background(), "TRUNCATE appointments"); err != nil {
+	if _, err := testPool.Exec(context.Background(), "TRUNCATE appointments, outbox_events"); err != nil {
 		t.Fatalf("truncating: %v", err)
 	}
 }
@@ -238,3 +244,58 @@ func TestReserveAppointmentAllowsAdjacentSlots(t *testing.T) {
 }
 
 var _ = fmt.Sprintf
+
+func TestReserveAppointmentWritesToOutbox(t *testing.T) {
+	truncate(t)
+	now := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	startsAt := now.Add(2 * time.Hour)
+	handler := newHandler(now)
+
+	id, err := handler.Handle(context.Background(), newCommand("3f2504e0-4f89-11d3-9a0c-0305e82c3301", startsAt))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var eventType, aggregateId string
+	row := testPool.QueryRow(context.Background(),
+		"SELECT event_type, aggregate_id FROM outbox_events WHERE published_at IS NULL")
+
+	if err := row.Scan(&eventType, &aggregateId); err != nil {
+		t.Fatalf("reading outbox event: %v", err)
+	}
+
+	if eventType != "appointment.reserved" {
+		t.Errorf("expected 'appointment.reserved', got %q", eventType)
+	}
+	if aggregateId != id.Value() {
+		t.Errorf("expected aggregate id %s, got %s", id.Value(), aggregateId)
+	}
+}
+
+// Si la reserva falla, la transacción revierte y no debe quedar
+// ningún evento huérfano en el outbox.
+func TestFailedReservationWritesNoOutboxEvent(t *testing.T) {
+	truncate(t)
+	now := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	startsAt := now.Add(2 * time.Hour)
+	handler := newHandler(now)
+	ctx := context.Background()
+
+	if _, err := handler.Handle(ctx, newCommand("3f2504e0-4f89-11d3-9a0c-0305e82c3301", startsAt)); err != nil {
+		t.Fatalf("unexpected error on first reservation: %v", err)
+	}
+
+	if _, err := handler.Handle(ctx, newCommand("6ba7b810-9dad-11d1-80b4-00c04fd430c8", startsAt)); err == nil {
+		t.Fatal("expected the second reservation to fail")
+	}
+
+	var count int
+	row := testPool.QueryRow(ctx, "SELECT count(*) FROM outbox_events")
+	if err := row.Scan(&count); err != nil {
+		t.Fatalf("counting outbox events: %v", err)
+	}
+
+	if count != 1 {
+		t.Errorf("expected exactly 1 outbox event, got %d", count)
+	}
+}

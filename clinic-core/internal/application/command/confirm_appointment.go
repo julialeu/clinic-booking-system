@@ -14,17 +14,20 @@ type ConfirmAppointment struct {
 
 type ConfirmAppointmentHandler struct {
 	repository  appointment.Repository
+	outbox      shared.OutboxRepository
 	transaction shared.TransactionManager
 	clock       Clock
 }
 
 func NewConfirmAppointmentHandler(
 	repository appointment.Repository,
+	outbox shared.OutboxRepository,
 	transaction shared.TransactionManager,
 	clock Clock,
 ) *ConfirmAppointmentHandler {
 	return &ConfirmAppointmentHandler{
 		repository:  repository,
+		outbox:      outbox,
 		transaction: transaction,
 		clock:       clock,
 	}
@@ -49,6 +52,7 @@ func (h *ConfirmAppointmentHandler) Handle(ctx context.Context, cmd ConfirmAppoi
 		if err := h.repository.Save(txCtx, found); err != nil {
 			return fmt.Errorf("saving confirmed appointment: %w", err)
 		}
-		return nil
+
+		return recordEvents(txCtx, h.outbox, found)
 	})
 }

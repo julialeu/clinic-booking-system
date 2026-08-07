@@ -44,13 +44,14 @@ func run() error {
 	defer pool.Close()
 
 	repository := persistence.NewAppointmentRepository(pool)
+	outbox := persistence.NewOutboxRepository(pool)
 	transactions := postgres.NewTransactionManager(pool)
 	systemClock := clock.NewSystem()
 
 	server := grpcadapter.NewAppointmentServer(
-		command.NewReserveAppointmentHandler(repository, transactions, systemClock),
-		command.NewConfirmAppointmentHandler(repository, transactions, systemClock),
-		command.NewCancelAppointmentHandler(repository, transactions, systemClock),
+		command.NewReserveAppointmentHandler(repository, outbox, transactions, systemClock),
+		command.NewConfirmAppointmentHandler(repository, outbox, transactions, systemClock),
+		command.NewCancelAppointmentHandler(repository, outbox, transactions, systemClock),
 		query.NewWeeklyAgendaHandler(pool),
 	)
 
@@ -80,8 +81,6 @@ func run() error {
 	}
 }
 
-// shutdown espera a que terminen las peticiones en curso,
-// forzando el cierre si tardan demasiado.
 func shutdown(server *grpc.Server) error {
 	stopped := make(chan struct{})
 
