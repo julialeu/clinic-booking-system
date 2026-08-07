@@ -42,3 +42,7 @@ CLAUDE_CONTEXT.md
 *.png
 
 NUL
+
+# Peticiones de prueba manual
+*.json
+!package.json
