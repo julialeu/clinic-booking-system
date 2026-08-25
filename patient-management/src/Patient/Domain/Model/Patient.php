@@ -13,6 +13,9 @@ use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
 use DomainException;
 use Ramsey\Uuid\Uuid;
+use Clinic\Patient\Domain\Event\PatientContactChanged;
+use Clinic\Patient\Domain\Event\PatientRegistered;
+use Clinic\Shared\Domain\DomainEvent;
 
 #[ORM\Entity]
 #[ORM\Table(name: 'patients')]
@@ -47,6 +50,9 @@ class Patient
     #[ORM\OrderBy(['recordedAt' => 'DESC'])]
     private Collection $clinicalRecords;
 
+    /** @var list<DomainEvent> */
+    private array $domainEvents = [];
+
     private function __construct(
         PatientId $id,
         FullName $name,
@@ -69,9 +75,19 @@ class Patient
         DateTimeImmutable $now,
         ?string $email = null,
     ): self {
-        return new self(PatientId::generate(), $name, $phone, $email, $now);
-    }
+        $patient = new self(PatientId::generate(), $name, $phone, $email, $now);
 
+        $patient->recordEvent(new PatientRegistered(
+            $patient->id,
+            $name->informal(),
+            $name->full(),
+            $phone->value(),
+            $now,
+        ));
+
+        return $patient;
+    }
+    
     public function id(): PatientId
     {
         return PatientId::fromString($this->id);
@@ -153,5 +169,19 @@ class Patient
         }
 
         $this->dischargedAt = $now;
+    }
+
+        private function recordEvent(DomainEvent $event): void
+    {
+        $this->domainEvents[] = $event;
+    }
+
+    /** @return list<DomainEvent> */
+    public function pullDomainEvents(): array
+    {
+        $events = $this->domainEvents;
+        $this->domainEvents = [];
+
+        return $events;
     }
 }
