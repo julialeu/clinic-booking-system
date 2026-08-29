@@ -124,14 +124,27 @@ class Patient
         return $this->clinicalRecords;
     }
 
-    public function changePhone(PhoneNumber $phone): void
+        public function changePhone(PhoneNumber $phone, DateTimeImmutable $now): void
     {
         $this->phone = $phone->value();
+        $this->recordContactChange($now);
     }
 
-    public function changeName(FullName $name): void
+    public function changeName(FullName $name, DateTimeImmutable $now): void
     {
         $this->name = $name;
+        $this->recordContactChange($now);
+    }
+
+    private function recordContactChange(DateTimeImmutable $now): void
+    {
+        $this->recordEvent(new PatientContactChanged(
+            $this->id,
+            $this->name->informal(),
+            $this->name->full(),
+            $this->phone,
+            $now,
+        ));
     }
 
     /**
