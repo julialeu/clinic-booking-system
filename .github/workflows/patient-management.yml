@@ -1,0 +1,44 @@
+name: Patient Management
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'patient-management/**'
+      - '.github/workflows/patient-management.yml'
+  pull_request:
+    paths:
+      - 'patient-management/**'
+      - '.github/workflows/patient-management.yml'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: patient-management
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_pgsql, mbstring, zip
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: patient-management/vendor
+          key: composer-${{ hashFiles('patient-management/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Test
+        run: ./vendor/bin/pest
