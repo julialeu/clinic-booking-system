@@ -43,6 +43,7 @@ CLAUDE_CONTEXT.md
 
 NUL
 
-# Peticiones de prueba manual
-*.json
-!package.json
+# === Peticiones de prueba manual (solo en la raíz) ===
+/reserve.json
+/confirm.json
+/agenda.json
