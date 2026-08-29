@@ -16,10 +16,11 @@ import (
 )
 
 const (
-	defaultDSN     = "postgres://clinic:clinic_dev_password@localhost:5432/notifications?sslmode=disable"
-	defaultBrokers = "localhost:9092"
-	defaultTopic   = "clinic.appointments"
-	defaultGroup   = "notification-service"
+	defaultDSN        = "postgres://clinic:clinic_dev_password@localhost:5432/notifications?sslmode=disable"
+	defaultBrokers    = "localhost:9092"
+	appointmentsTopic = "clinic.appointments"
+	patientsTopic     = "clinic.patients"
+	defaultGroup      = "notification-service"
 )
 
 func main() {
@@ -38,24 +39,28 @@ func run() error {
 	}
 	defer pool.Close()
 
-	handler := application.NewAppointmentEventHandler(
-		persistence.NewProcessedEventsRepository(pool),
-		persistence.NewStaticPatientDirectory(),
-		whatsapp.NewLogSender(),
-	)
+	patients := persistence.NewPatientRepository(pool)
+
+	router := application.NewTopicRouter(map[string]application.Handler{
+		appointmentsTopic: application.NewAppointmentEventHandler(
+			persistence.NewProcessedEventsRepository(pool),
+			patients,
+			whatsapp.NewLogSender(),
+		),
+		patientsTopic: application.NewPatientEventHandler(patients),
+	})
 
 	brokers := strings.Split(envOr("KAFKA_BROKERS", defaultBrokers), ",")
-	topic := envOr("KAFKA_TOPIC", defaultTopic)
+	topics := []string{appointmentsTopic, patientsTopic}
 	group := envOr("KAFKA_GROUP", defaultGroup)
 
-	consumer, err := kafka.NewConsumer(brokers, topic, group, handler)
+	consumer, err := kafka.NewConsumer(brokers, topics, group, router)
 	if err != nil {
 		return err
 	}
-
 	defer consumer.Close()
 
-	log.Printf("notification-service consuming %s as group %s", topic, group)
+	log.Printf("notification-service consuming %v as group %s", topics, group)
 	if err := consumer.Run(ctx); err != nil {
 		return err
 	}

@@ -51,7 +51,7 @@ final class PublishOutboxEvents extends Command
                     topic: self::TOPIC,
                     key: $event['aggregate_id'],
                     payload: $event['payload'],
-                    headers: ['event_name' => $event['event_name']],
+                    headers: ['event_type' => $event['event_name']],
                 ),
                 $events,
             );
