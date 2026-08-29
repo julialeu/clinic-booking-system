@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 
@@ -19,12 +20,11 @@ type Consumer struct {
 	handler EventHandler
 }
 
-func NewConsumer(brokers []string, topic, group string, handler EventHandler) (*Consumer, error) {
+func NewConsumer(brokers []string, topics []string, group string, handler EventHandler) (*Consumer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
-		kgo.ConsumeTopics(topic),
+		kgo.ConsumeTopics(topics...),
 		kgo.ConsumerGroup(group),
-		// Commit manual: confirmamos solo lo que hemos procesado.
 		kgo.DisableAutoCommit(),
 	)
 	if err != nil {
@@ -80,7 +80,7 @@ func (c *Consumer) processFetches(ctx context.Context, fetches kgo.Fetches) erro
 func headerValue(record *kgo.Record, key string) string {
 	for _, header := range record.Headers {
 		if header.Key == key {
-			return string(header.Value)
+			return strings.Trim(string(header.Value), `"`)
 		}
 	}
 	return ""
