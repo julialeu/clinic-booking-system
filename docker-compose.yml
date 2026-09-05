@@ -49,7 +49,7 @@ services:
       redpanda:
         condition: service_healthy
     entrypoint: /bin/sh
-    command: -c "rpk topic create clinic.appointments --partitions 3 --replicas 1 --brokers redpanda:29092 || true"
+    command: -c "rpk topic create clinic.appointments --partitions 3 --replicas 1 --brokers redpanda:29092 || true; rpk topic create clinic.patients --partitions 3 --replicas 1 --brokers redpanda:29092 || true"
 
   redpanda-console:
     image: redpandadata/console:v2.7.2
@@ -63,6 +63,48 @@ services:
     ports:
       - "8080:8080"
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: clinic-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: clinic-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: clinic-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./observability/grafana:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+
 volumes:
   postgres_data:
   redpanda_data:
+  prometheus_data:
+  grafana_data:
