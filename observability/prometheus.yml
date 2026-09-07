@@ -18,3 +18,9 @@ scrape_configs:
       - targets: ['host.docker.internal:9092']
         labels:
           service: notification-service
+
+  - job_name: clinic-outbox-relay
+    static_configs:
+      - targets: ['host.docker.internal:9093']
+        labels:
+          service: clinic-outbox-relay        

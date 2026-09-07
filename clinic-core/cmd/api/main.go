@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 
@@ -20,11 +21,15 @@ import (
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/infrastructure/persistence"
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/clock"
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/postgres"
+	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/telemetry"
 )
 
 const (
-	defaultDSN  = "postgres://clinic:clinic_dev_password@localhost:5432/clinic_core?sslmode=disable"
-	defaultPort = ":50051"
+	defaultDSN     = "postgres://clinic:clinic_dev_password@localhost:5432/clinic_core?sslmode=disable"
+	defaultPort    = ":50051"
+	defaultMetrics = ":9091"
+	defaultOTLP    = "localhost:4317"
+	serviceName    = "clinic-core"
 )
 
 func main() {
@@ -36,6 +41,17 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	shutdownTracing, err := telemetry.Setup(ctx, telemetry.Config{
+		ServiceName:  serviceName,
+		Environment:  envOr("ENVIRONMENT", "development"),
+		OTLPEndpoint: envOr("OTLP_ENDPOINT", defaultOTLP),
+	})
+	if err != nil {
+		return err
+	}
+
+	shutdownMetrics := telemetry.ServeMetrics(ctx, envOr("METRICS_ADDRESS", defaultMetrics))
 
 	pool, err := postgres.NewPool(ctx, postgres.DefaultConfig(envOr("DATABASE_URL", defaultDSN)))
 	if err != nil {
@@ -55,7 +71,9 @@ func run() error {
 		query.NewWeeklyAgendaHandler(pool),
 	)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+	)
 	appointmentv1.RegisterAppointmentServiceServer(grpcServer, server)
 	reflection.Register(grpcServer)
 
@@ -77,7 +95,16 @@ func run() error {
 
 	case <-ctx.Done():
 		log.Println("shutdown signal received")
-		return shutdown(grpcServer)
+
+		if err := shutdown(grpcServer); err != nil {
+			return err
+		}
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		_ = shutdownMetrics(shutdownCtx)
+		return shutdownTracing(shutdownCtx)
 	}
 }
 
