@@ -8,12 +8,16 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/domain/appointment"
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/postgres"
 )
 
 var _ appointment.Repository = (*AppointmentRepository)(nil)
+
+var tracer = otel.Tracer("clinic-core/infrastructure/persistence")
 
 type AppointmentRepository struct {
 	pool *pgxpool.Pool
@@ -36,6 +40,9 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at     = now()`
 
 func (r *AppointmentRepository) Save(ctx context.Context, a *appointment.Appointment) error {
+	ctx, span := tracer.Start(ctx, "AppointmentRepository.Save")
+	defer span.End()
+
 	_, err := postgres.QuerierFrom(ctx, r.pool).Exec(ctx, upsertAppointmentSQL,
 		a.Id().Value(),
 		a.PatientId().Value(),
@@ -50,6 +57,7 @@ func (r *AppointmentRepository) Save(ctx context.Context, a *appointment.Appoint
 		a.Type().Price().Currency(),
 	)
 	if err != nil {
+		span.RecordError(err)
 		return fmt.Errorf("saving appointment: %w", err)
 	}
 	return nil
@@ -63,6 +71,9 @@ func (r *AppointmentRepository) FindById(
 	ctx context.Context,
 	id appointment.AppointmentId,
 ) (*appointment.Appointment, error) {
+	ctx, span := tracer.Start(ctx, "AppointmentRepository.FindById")
+	defer span.End()
+
 	query := `SELECT ` + selectColumns + ` FROM appointments WHERE id = $1`
 
 	row := postgres.QuerierFrom(ctx, r.pool).QueryRow(ctx, query, id.Value())
@@ -72,18 +83,20 @@ func (r *AppointmentRepository) FindById(
 		return nil, appointment.ErrAppointmentNotFound
 	}
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("finding appointment: %w", err)
 	}
 	return result, nil
 }
 
 // FindOverlapping busca citas activas que pisen la franja indicada.
-// Usa FOR UPDATE para bloquear las filas durante la transacción y
-// evitar que dos reservas simultáneas pasen la comprobación.
 func (r *AppointmentRepository) FindOverlapping(
 	ctx context.Context,
 	slot appointment.TimeSlot,
 ) ([]*appointment.Appointment, error) {
+	ctx, span := tracer.Start(ctx, "AppointmentRepository.FindOverlapping")
+	defer span.End()
+
 	query := `
 SELECT ` + selectColumns + `
 FROM appointments
@@ -99,17 +112,28 @@ FOR UPDATE`
 		slot.Start(),
 	)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("finding overlapping appointments: %w", err)
 	}
 	defer rows.Close()
 
-	return collectAppointments(rows)
+	found, err := collectAppointments(rows)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	span.SetAttributes(attribute.Int("overlapping.count", len(found)))
+	return found, nil
 }
 
 func (r *AppointmentRepository) FindExpiredReservations(
 	ctx context.Context,
 	now time.Time,
 ) ([]*appointment.Appointment, error) {
+	ctx, span := tracer.Start(ctx, "AppointmentRepository.FindExpiredReservations")
+	defer span.End()
+
 	query := `
 SELECT ` + selectColumns + `
 FROM appointments
@@ -118,9 +142,17 @@ WHERE status = $1
 
 	rows, err := postgres.QuerierFrom(ctx, r.pool).Query(ctx, query, int16(appointment.StatusReserved), now)
 	if err != nil {
+		span.RecordError(err)
 		return nil, fmt.Errorf("finding expired reservations: %w", err)
 	}
 	defer rows.Close()
 
-	return collectAppointments(rows)
+	found, err := collectAppointments(rows)
+	if err != nil {
+		span.RecordError(err)
+		return nil, err
+	}
+
+	span.SetAttributes(attribute.Int("expired.count", len(found)))
+	return found, nil
 }
