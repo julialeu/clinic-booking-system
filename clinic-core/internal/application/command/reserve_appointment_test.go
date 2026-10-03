@@ -62,6 +62,7 @@ func TestMain(m *testing.M) {
 	migrations := []string{
 		"000001_create_appointments_table.up.sql",
 		"000002_create_outbox_events_table.up.sql",
+		"000003_add_trace_context_to_outbox.up.sql",
 	}
 	for _, name := range migrations {
 		content, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", name))
@@ -194,7 +195,6 @@ func TestConcurrentReservationsOnSameSlot(t *testing.T) {
 		}(patientIds[i])
 	}
 
-	// Libera todas las goroutines a la vez para maximizar la contención.
 	close(start)
 	wg.Wait()
 	close(results)

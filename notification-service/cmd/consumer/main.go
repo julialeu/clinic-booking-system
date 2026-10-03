@@ -7,12 +7,14 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/julialeu/clinic-booking-system/notification-service/internal/application"
 	"github.com/julialeu/clinic-booking-system/notification-service/internal/infrastructure/kafka"
 	"github.com/julialeu/clinic-booking-system/notification-service/internal/infrastructure/persistence"
 	"github.com/julialeu/clinic-booking-system/notification-service/internal/infrastructure/whatsapp"
 	"github.com/julialeu/clinic-booking-system/notification-service/internal/platform/postgres"
+	"github.com/julialeu/clinic-booking-system/notification-service/internal/platform/telemetry"
 )
 
 const (
@@ -21,6 +23,8 @@ const (
 	appointmentsTopic = "clinic.appointments"
 	patientsTopic     = "clinic.patients"
 	defaultGroup      = "notification-service"
+	defaultOTLP       = "localhost:4317"
+	serviceName       = "notification-service"
 )
 
 func main() {
@@ -32,6 +36,21 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	shutdownTracing, err := telemetry.Setup(ctx, telemetry.Config{
+		ServiceName:  serviceName,
+		Environment:  envOr("ENVIRONMENT", "development"),
+		OTLPEndpoint: envOr("OTLP_ENDPOINT", defaultOTLP),
+	})
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = shutdownTracing(shutdownCtx)
+	}()
 
 	pool, err := postgres.NewPool(ctx, envOr("DATABASE_URL", defaultDSN))
 	if err != nil {

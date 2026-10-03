@@ -1,9 +1,13 @@
 package messaging
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/domain/appointment"
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/domain/shared"
@@ -19,11 +23,11 @@ const (
 	EventAppointmentExpired   = "appointment.expired"
 )
 
-func ToOutboxEvents(domainEvents []any) ([]shared.OutboxEvent, error) {
+func ToOutboxEvents(ctx context.Context, domainEvents []any) ([]shared.OutboxEvent, error) {
 	result := make([]shared.OutboxEvent, 0, len(domainEvents))
 
 	for _, domainEvent := range domainEvents {
-		outboxEvent, err := toOutboxEvent(domainEvent)
+		outboxEvent, err := toOutboxEvent(ctx, domainEvent)
 		if err != nil {
 			return nil, err
 		}
@@ -32,23 +36,23 @@ func ToOutboxEvents(domainEvents []any) ([]shared.OutboxEvent, error) {
 	return result, nil
 }
 
-func toOutboxEvent(domainEvent any) (shared.OutboxEvent, error) {
+func toOutboxEvent(ctx context.Context, domainEvent any) (shared.OutboxEvent, error) {
 	switch event := domainEvent.(type) {
 
 	case appointment.AppointmentReserved:
-		return build(EventAppointmentReserved, event.AppointmentId, event.OccurredOn, event)
+		return build(ctx, EventAppointmentReserved, event.AppointmentId, event.OccurredOn, event)
 
 	case appointment.AppointmentConfirmed:
-		return build(EventAppointmentConfirmed, event.AppointmentId, event.OccurredOn, event)
+		return build(ctx, EventAppointmentConfirmed, event.AppointmentId, event.OccurredOn, event)
 
 	case appointment.AppointmentCancelled:
-		return build(EventAppointmentCancelled, event.AppointmentId, event.OccurredOn, event)
+		return build(ctx, EventAppointmentCancelled, event.AppointmentId, event.OccurredOn, event)
 
 	case appointment.AppointmentCompleted:
-		return build(EventAppointmentCompleted, event.AppointmentId, event.OccurredOn, event)
+		return build(ctx, EventAppointmentCompleted, event.AppointmentId, event.OccurredOn, event)
 
 	case appointment.AppointmentExpired:
-		return build(EventAppointmentExpired, event.AppointmentId, event.OccurredOn, event)
+		return build(ctx, EventAppointmentExpired, event.AppointmentId, event.OccurredOn, event)
 
 	default:
 		return shared.OutboxEvent{}, fmt.Errorf("unknown domain event type: %T", domainEvent)
@@ -56,6 +60,7 @@ func toOutboxEvent(domainEvent any) (shared.OutboxEvent, error) {
 }
 
 func build(
+	ctx context.Context,
 	eventType string,
 	aggregateId string,
 	occurredOn time.Time,
@@ -66,11 +71,15 @@ func build(
 		return shared.OutboxEvent{}, fmt.Errorf("marshalling %s: %w", eventType, err)
 	}
 
+	carrier := propagation.MapCarrier{}
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+
 	return shared.OutboxEvent{
 		AggregateType: appointmentAggregate,
 		AggregateId:   aggregateId,
 		EventType:     eventType,
 		Payload:       encoded,
 		OccurredOn:    occurredOn,
+		TraceContext:  carrier,
 	}, nil
 }

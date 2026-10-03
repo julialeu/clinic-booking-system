@@ -9,14 +9,12 @@ import (
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/infrastructure/messaging"
 )
 
-// recordEvents persiste en el outbox los eventos emitidos por el
-// aggregate. Debe llamarse dentro de la misma transacción que lo guardó.
 func recordEvents(
 	ctx context.Context,
 	outbox shared.OutboxRepository,
 	a *appointment.Appointment,
 ) error {
-	events, err := messaging.ToOutboxEvents(a.PullDomainEvents())
+	events, err := messaging.ToOutboxEvents(ctx, a.PullDomainEvents())
 	if err != nil {
 		return fmt.Errorf("translating domain events: %w", err)
 	}
