@@ -2,14 +2,20 @@ package messaging
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/julialeu/clinic-booking-system/clinic-core/internal/domain/shared"
+	"github.com/julialeu/clinic-booking-system/clinic-core/internal/platform/telemetry"
 )
 
 const (
@@ -17,6 +23,8 @@ const (
 	defaultBatchSize  = 100
 	defaultInterval   = 2 * time.Second
 )
+
+var relayTracer = otel.Tracer("clinic-core/infrastructure/messaging")
 
 type RelayConfig struct {
 	BatchSize    int
@@ -54,7 +62,6 @@ func (r *OutboxRelay) Run(ctx context.Context) error {
 			return nil
 
 		case <-ticker.C:
-			log.Println("outbox relay: polling")
 			published, err := r.processBatch(ctx)
 			if err != nil {
 				log.Printf("outbox relay: %v", err)
@@ -74,10 +81,11 @@ type pendingEvent struct {
 	eventType     string
 	payload       []byte
 	occurredOn    time.Time
+	traceContext  map[string]string
 }
 
 const selectPendingSQL = `
-SELECT id, aggregate_type, aggregate_id, event_type, payload, occurred_on
+SELECT id, aggregate_type, aggregate_id, event_type, payload, occurred_on, trace_context
 FROM outbox_events
 WHERE published_at IS NULL
 ORDER BY id
@@ -113,16 +121,7 @@ func (r *OutboxRelay) processBatch(ctx context.Context) (int, error) {
 	ids := make([]int64, 0, len(events))
 
 	for _, event := range events {
-		messages = append(messages, shared.Message{
-			Topic:   appointmentsTopic,
-			Key:     event.aggregateId,
-			Payload: event.payload,
-			Headers: map[string]string{
-				"event_type":     event.eventType,
-				"aggregate_type": event.aggregateType,
-				"occurred_on":    event.occurredOn.Format(time.RFC3339),
-			},
-		})
+		messages = append(messages, r.buildMessage(ctx, event))
 		ids = append(ids, event.id)
 	}
 
@@ -145,7 +144,37 @@ func (r *OutboxRelay) processBatch(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("committing batch: %w", err)
 	}
 
+	telemetry.OutboxPending.Set(0)
 	return len(events), nil
+}
+
+func (r *OutboxRelay) buildMessage(ctx context.Context, event pendingEvent) shared.Message {
+	headers := map[string]string{
+		"event_type":     event.eventType,
+		"aggregate_type": event.aggregateType,
+		"occurred_on":    event.occurredOn.Format(time.RFC3339),
+	}
+
+	originCtx := otel.GetTextMapPropagator().
+		Extract(ctx, propagation.MapCarrier(event.traceContext))
+
+	publishCtx, span := relayTracer.Start(originCtx, "OutboxRelay.Publish",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", appointmentsTopic),
+			attribute.String("event.type", event.eventType),
+		),
+	)
+	otel.GetTextMapPropagator().Inject(publishCtx, propagation.MapCarrier(headers))
+	span.End()
+
+	return shared.Message{
+		Topic:   appointmentsTopic,
+		Key:     event.aggregateId,
+		Payload: event.payload,
+		Headers: headers,
+	}
 }
 
 func fetchPending(ctx context.Context, tx pgx.Tx, limit int) ([]pendingEvent, error) {
@@ -157,7 +186,11 @@ func fetchPending(ctx context.Context, tx pgx.Tx, limit int) ([]pendingEvent, er
 
 	events := make([]pendingEvent, 0, limit)
 	for rows.Next() {
-		var event pendingEvent
+		var (
+			event        pendingEvent
+			traceContext []byte
+		)
+
 		err := rows.Scan(
 			&event.id,
 			&event.aggregateType,
@@ -165,10 +198,18 @@ func fetchPending(ctx context.Context, tx pgx.Tx, limit int) ([]pendingEvent, er
 			&event.eventType,
 			&event.payload,
 			&event.occurredOn,
+			&traceContext,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scanning pending event: %w", err)
 		}
+
+		if len(traceContext) > 0 {
+			if err := json.Unmarshal(traceContext, &event.traceContext); err != nil {
+				log.Printf("outbox relay: ignoring malformed trace context on event %d", event.id)
+			}
+		}
+
 		events = append(events, event)
 	}
 

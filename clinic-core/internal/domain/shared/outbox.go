@@ -11,6 +11,7 @@ type OutboxEvent struct {
 	EventType     string
 	Payload       []byte
 	OccurredOn    time.Time
+	TraceContext  map[string]string
 }
 
 type OutboxRepository interface {
