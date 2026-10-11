@@ -20,17 +20,17 @@ class Patient:
 
     def __init__(
         self,
-        patient_id: PatientId,
+        patient_id: PatientId | str,
         name: FullName,
-        phone: PhoneNumber,
+        phone: PhoneNumber | str,
         registered_at: datetime,
         email: str | None = None,
         discharged_at: datetime | None = None,
         clinical_records: list[ClinicalRecord] | None = None,
     ) -> None:
-        self._id = patient_id
+        self._id = patient_id.value if isinstance(patient_id, PatientId) else patient_id
         self._name = name
-        self._phone = phone
+        self._phone = phone.value if isinstance(phone, PhoneNumber) else phone
         self._email = email
         self._registered_at = registered_at
         self._discharged_at = discharged_at
@@ -55,10 +55,10 @@ class Patient:
 
         patient._record_event(
             PatientRegistered(
-                patient_id=patient.id.value,
+                patient_id=patient._id,
                 first_name=name.informal,
                 full_name=name.full,
-                phone=phone.value,
+                phone=patient._phone,
                 registered_at=now,
             )
         )
@@ -67,7 +67,7 @@ class Patient:
 
     @property
     def id(self) -> PatientId:
-        return self._id
+        return PatientId(self._id)
 
     @property
     def name(self) -> FullName:
@@ -75,7 +75,7 @@ class Patient:
 
     @property
     def phone(self) -> PhoneNumber:
-        return self._phone
+        return PhoneNumber(self._phone)
 
     @property
     def email(self) -> str | None:
@@ -94,7 +94,7 @@ class Patient:
         return tuple(self._clinical_records)
 
     def change_phone(self, phone: PhoneNumber, now: datetime) -> None:
-        self._phone = phone
+        self._phone = phone.value
         self._record_contact_change(now)
 
     def change_name(self, name: FullName, now: datetime) -> None:
@@ -114,7 +114,7 @@ class Patient:
             )
 
         record = ClinicalRecord.create(
-            patient_id=self._id.value,
+            patient_id=self._id,
             consultation_reason=consultation_reason,
             treatment=treatment,
             recorded_at=recorded_at,
@@ -138,10 +138,10 @@ class Patient:
     def _record_contact_change(self, now: datetime) -> None:
         self._record_event(
             PatientContactChanged(
-                patient_id=self._id.value,
+                patient_id=self._id,
                 first_name=self._name.informal,
                 full_name=self._name.full,
-                phone=self._phone.value,
+                phone=self._phone,
                 changed_at=now,
             )
         )

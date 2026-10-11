@@ -9,10 +9,6 @@ class InvalidFullName(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class FullName:
-    """
-    Nombre de un paciente siguiendo la convención española:
-    nombre, primer apellido, y segundo apellido opcional.
-    """
 
     first_name: str
     first_surname: str
@@ -48,5 +44,7 @@ class FullName:
 
     @property
     def informal(self) -> str:
-        """Nombre para saludar en mensajes: en España se usa el de pila."""
         return self.first_name
+
+    def __composite_values__(self) -> tuple[str, str, str | None]:
+        return self.first_name, self.first_surname, self.second_surname    
