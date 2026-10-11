@@ -210,3 +210,22 @@ support. The product spec covers all of it. The architecture leaves room
 for it.
 
 Shipping something the physio can actually use came first.
+
+
+
+| **Patient Management** | Python / FastAPI | Clinical history, built with DDD and SQLAlchemy imperative mapping |
+
+## A note on the rewrite
+
+Patient Management was originally built in PHP with Laravel and Doctrine.
+It was rewritten in Python for reasons unrelated to the architecture.
+
+The interesting part is what didn't change. The notification service
+consumes `patient.registered` and `patient.contact_changed` from Kafka and
+has no idea which language produces them, so replacing the entire
+implementation required zero changes on the consuming side. Same contract,
+same events, same topic.
+
+That's the payoff of event-driven design, and it's easier to claim than to
+demonstrate. The PHP version is still in the git history if you want to
+compare the two.

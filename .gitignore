@@ -47,3 +47,6 @@ NUL
 /reserve.json
 /confirm.json
 /agenda.json
+
+# Implementación PHP sustituida por patient-management-py
+patient-management/

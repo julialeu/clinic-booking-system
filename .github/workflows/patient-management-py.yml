@@ -1,0 +1,38 @@
+name: Patient Management
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'patient-management-py/**'
+      - '.github/workflows/patient-management-py.yml'
+  pull_request:
+    paths:
+      - 'patient-management-py/**'
+      - '.github/workflows/patient-management-py.yml'
+
+jobs:
+  test:
+    name: Patient Management
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: patient-management-py
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test
+        run: pytest
