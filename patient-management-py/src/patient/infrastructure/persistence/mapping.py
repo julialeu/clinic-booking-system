@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    BigInteger,
     Column,
     DateTime,
     ForeignKey,
+    Index,
+    Integer,
     MetaData,
     String,
     Table,
     Text,
+    event,
+    func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import composite, registry, relationship
 
 from src.patient.domain.model.clinical_record import ClinicalRecord
@@ -27,8 +34,6 @@ patients_table = Table(
     Column("second_surname", String(80), nullable=True),
     Column("phone", String(20), nullable=False, index=True),
     Column("email", String(180), nullable=True),
-    # Con zona horaria: sin ella, el historial se desplaza una hora
-    # dos veces al año.
     Column("registered_at", DateTime(timezone=True), nullable=False),
     Column("discharged_at", DateTime(timezone=True), nullable=True),
 )
@@ -49,6 +54,30 @@ clinical_records_table = Table(
     Column("treatment", Text, nullable=False),
     Column("evolution", Text, nullable=True),
     Column("recorded_at", DateTime(timezone=True), nullable=False),
+)
+
+outbox_events_table = Table(
+    "outbox_events",
+    metadata,
+    Column("id", BigInteger, primary_key=True, autoincrement=True),
+    Column("aggregate_id", String(36), nullable=False),
+    Column("event_name", String(120), nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("occurred_on", DateTime(timezone=True), nullable=False),
+    Column("published_at", DateTime(timezone=True), nullable=True),
+    Column("attempts", Integer, nullable=False, server_default="0"),
+    Column("last_error", Text, nullable=True),
+    Column(
+        "created_at",
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    ),
+    Index(
+        "ix_outbox_events_pending",
+        "id",
+        postgresql_where=text("published_at IS NULL"),
+    ),
 )
 
 
@@ -72,8 +101,6 @@ def configure_mappings() -> None:
         patients_table,
         properties={
             "_id": patients_table.c.id,
-            # El nombre se aplana en tres columnas de la misma tabla,
-            # igual que un Embeddable: no tiene existencia propia.
             "_name": composite(
                 FullName,
                 patients_table.c.first_name,
@@ -92,3 +119,8 @@ def configure_mappings() -> None:
             ),
         },
     )
+
+
+@event.listens_for(Patient, "load")
+def _initialise_domain_events(target: Patient, _context: object) -> None:
+    target._domain_events = []
