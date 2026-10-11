@@ -1,3 +1,16 @@
+name: Patient Management
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'patient-management-py/**'
+      - '.github/workflows/patient-management-py.yml'
+  pull_request:
+    paths:
+      - 'patient-management-py/**'
+      - '.github/workflows/patient-management-py.yml'
+
 jobs:
   test:
     name: Patient Management
