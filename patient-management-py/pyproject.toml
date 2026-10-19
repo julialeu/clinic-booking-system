@@ -12,6 +12,7 @@ dependencies = [
     "alembic",
     "pydantic",
     "pydantic-settings",
+    "confluent-kafka",
 ]
 
 [project.optional-dependencies]
