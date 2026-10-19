@@ -12,7 +12,6 @@ from src.patient.application.command.register_patient_handler import (
     RegisterPatientHandler,
 )
 from src.patient.infrastructure.persistence.mapping import (
-    configure_mappings,
     outbox_events_table,
     patients_table,
 )
@@ -22,7 +21,6 @@ from src.patient.infrastructure.persistence.sqlalchemy_patient_repository import
 from src.shared.infrastructure.settings import settings
 from src.shared.infrastructure.sqlalchemy_event_store import SqlAlchemyEventStore
 
-configure_mappings()
 
 engine = create_engine(settings.database_url)
 TestSession = sessionmaker(bind=engine, expire_on_commit=False)

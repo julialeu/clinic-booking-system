@@ -25,6 +25,8 @@ from src.patient.domain.value_object import FullName
 metadata = MetaData()
 mapper_registry = registry(metadata=metadata)
 
+_mappings_configured = False
+
 patients_table = Table(
     "patients",
     metadata,
@@ -34,6 +36,8 @@ patients_table = Table(
     Column("second_surname", String(80), nullable=True),
     Column("phone", String(20), nullable=False, index=True),
     Column("email", String(180), nullable=True),
+    # Con zona horaria: sin ella, el historial se desplaza una hora
+    # dos veces al año.
     Column("registered_at", DateTime(timezone=True), nullable=False),
     Column("discharged_at", DateTime(timezone=True), nullable=True),
 )
@@ -82,6 +86,12 @@ outbox_events_table = Table(
 
 
 def configure_mappings() -> None:
+    
+    global _mappings_configured
+
+    if _mappings_configured:
+        return
+
     mapper_registry.map_imperatively(
         ClinicalRecord,
         clinical_records_table,
@@ -101,6 +111,7 @@ def configure_mappings() -> None:
         patients_table,
         properties={
             "_id": patients_table.c.id,
+         
             "_name": composite(
                 FullName,
                 patients_table.c.first_name,
@@ -120,7 +131,10 @@ def configure_mappings() -> None:
         },
     )
 
+    _mappings_configured = True
+
 
 @event.listens_for(Patient, "load")
 def _initialise_domain_events(target: Patient, _context: object) -> None:
+    
     target._domain_events = []
